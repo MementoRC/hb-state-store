@@ -22,4 +22,4 @@ def test_version() -> None:
     manifest = Path(__file__).resolve().parents[1] / ".release-please-manifest.json"
     expected = json.loads(manifest.read_text(encoding="utf-8"))["."]
     assert __version__ == expected
-    assert re.match(r"^\d+\.\d+\.\d+$", __version__)
+    assert re.fullmatch(r"\d+\.\d+\.\d+", __version__)
