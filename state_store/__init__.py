@@ -1,4 +1,4 @@
-"""Stdlib-only persistent state store (sqlite3) for hummingbot sub-packages."""
+"""Durable counters and record store (SQLite) for hummingbot sub-packages."""
 
 from state_store.__about__ import __version__
 from state_store.adapters import (
