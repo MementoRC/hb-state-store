@@ -6,7 +6,8 @@ import threading
 from typing import Any
 
 from state_store._common import (
-    AsyncStoreMixin,
+    AsyncCounterMixin,
+    AsyncRecordMixin,
     check_bounds,
     decode_record,
     encode_record,
@@ -14,50 +15,73 @@ from state_store._common import (
 )
 
 
-class MemoryStateStore(AsyncStoreMixin):
-    """DurableCounter + RecordStore held in memory (`durable` is False)."""
+class MemoryStateStore:
+    """In-memory `.counters` and `.records` views sharing one lock (`durable` is False)."""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._counters: dict[str, int] = {}
         self._records: dict[str, dict[str, str]] = {}
+        self.counters = MemoryCounters(self)
+        self.records = MemoryRecords(self)
+
+    @property
+    def durable(self) -> bool:
+        return False
+
+    def close(self) -> None:
+        """No-op; present for API parity with SqliteStateStore."""
+
+
+class MemoryCounters(AsyncCounterMixin):
+    def __init__(self, store: MemoryStateStore) -> None:
+        self._store = store
 
     @property
     def durable(self) -> bool:
         return False
 
     def load(self, name: str) -> int | None:
-        with self._lock:
-            return self._counters.get(name)
+        with self._store._lock:
+            return self._store._counters.get(name)
 
     def advance_to(self, name: str, value: int) -> int:
         check_bounds(value)
-        with self._lock:
-            result = max(self._counters.get(name, value), value)
-            self._counters[name] = result
+        with self._store._lock:
+            result = max(self._store._counters.get(name, value), value)
+            self._store._counters[name] = result
             return result
 
     def reserve(self, name: str, floor: int = 0) -> int:
-        with self._lock:
-            value = next_value(self._counters.get(name), floor)
-            self._counters[name] = value
+        with self._store._lock:
+            value = next_value(self._store._counters.get(name), floor)
+            self._store._counters[name] = value
             return value
+
+
+class MemoryRecords(AsyncRecordMixin):
+    def __init__(self, store: MemoryStateStore) -> None:
+        self._store = store
+
+    @property
+    def durable(self) -> bool:
+        return False
 
     def save(self, collection: str, key: str, record: dict[str, Any]) -> None:
         data = encode_record(record)
-        with self._lock:
-            self._records.setdefault(collection, {})[key] = data
+        with self._store._lock:
+            self._store._records.setdefault(collection, {})[key] = data
 
-    def load_record(self, collection: str, key: str) -> dict[str, Any] | None:
-        with self._lock:
-            data = self._records.get(collection, {}).get(key)
+    def load(self, collection: str, key: str) -> dict[str, Any] | None:
+        with self._store._lock:
+            data = self._store._records.get(collection, {}).get(key)
         return None if data is None else decode_record(data)
 
     def load_all(self, collection: str) -> dict[str, dict[str, Any]]:
-        with self._lock:
-            items = dict(self._records.get(collection, {}))
+        with self._store._lock:
+            items = dict(self._store._records.get(collection, {}))
         return {key: decode_record(data) for key, data in sorted(items.items())}
 
     def delete(self, collection: str, key: str) -> None:
-        with self._lock:
-            self._records.get(collection, {}).pop(key, None)
+        with self._store._lock:
+            self._store._records.get(collection, {}).pop(key, None)

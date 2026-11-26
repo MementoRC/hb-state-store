@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
+from state_store._common import check_int
 from state_store.errors import CounterOverflowError
 
 if TYPE_CHECKING:
@@ -107,6 +108,8 @@ class GroupIdAllocatorAdapter:
     ) -> None:
         self._counter = counter
         self._name = name
+        if max_group_id is not None:
+            check_int(max_group_id, "max_group_id")
         self._max = max_group_id
 
     async def reserve_group_id(self) -> GroupId:
