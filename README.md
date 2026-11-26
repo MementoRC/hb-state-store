@@ -3,13 +3,16 @@
 [![CI](https://github.com/MementoRC/hb-state-store/actions/workflows/ci.yml/badge.svg)](https://github.com/MementoRC/hb-state-store/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-Stdlib-only persistent state store (sqlite3 + file lock) for hummingbot sub-packages.
+Durable counters and record store (SQLite) for hummingbot sub-packages.
 
 ## Overview
 
-`state_store` is an L0 leaf under ADR 0001 with zero runtime dependencies: it uses only
-the Python standard library, never imports `hummingbot`, and never imports another
-sub-package.
+`state_store` is an L0 leaf (ADR 0001): depends on no other hb-* package (no L0->L0, never
+upward). External conda-forge dependencies are allowed but kept minimal; PyPI-only
+dependencies are not.
+
+hb-state-store currently needs no third-party runtime dependencies (it uses sqlite3 from the
+standard library). It never imports `hummingbot`.
 
 ## API
 
@@ -101,7 +104,7 @@ pixi run check
 
 ```
 hb-state-store/
-  state_store/        # package (stdlib only)
+  state_store/        # package
     __about__.py      # version (managed by release-please)
     __init__.py
   tests/

@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "hb-state-store"
 dynamic = ["version"]
-description = "Stdlib-only persistent state store (sqlite3 + file lock) for hummingbot sub-packages"
+description = "Durable counters and record store (SQLite) for hummingbot sub-packages"
 requires-python = ">=3.12"
 license = {text = "Apache-2.0"}
 dependencies = []
