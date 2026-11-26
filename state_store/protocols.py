@@ -9,6 +9,9 @@ from typing import Any, Protocol, runtime_checkable
 class DurableCounter(Protocol):
     """Named, monotonic integer counters. A counter is unset until first reserve/advance."""
 
+    @property
+    def durable(self) -> bool: ...
+
     def load(self, name: str) -> int | None:
         """Current value, or None if never set."""
         ...
@@ -17,8 +20,11 @@ class DurableCounter(Protocol):
         """Persist max(current, value) and return it. Never moves backwards."""
         ...
 
-    def reserve(self, name: str, floor: int = 0) -> int:
-        """Atomically return max(current + 1, floor), persisted before returning."""
+    def reserve(self, name: str, floor: int = 0, ceiling: int | None = None) -> int:
+        """Atomically return max(current + 1, floor), persisted before returning.
+
+        If that value would exceed `ceiling`, raise CounterOverflowError without persisting.
+        """
         ...
 
 

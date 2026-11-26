@@ -13,6 +13,7 @@ from state_store._common import (
     AsyncCounterMixin,
     AsyncRecordMixin,
     check_bounds,
+    check_str,
     decode_record,
     encode_record,
     next_value,
@@ -26,13 +27,23 @@ if TYPE_CHECKING:
 # Ordered migration steps; step N (1-based) upgrades schema version N-1 to N.
 _MIGRATIONS: tuple[tuple[str, ...], ...] = (
     (
-        "CREATE TABLE counters (name TEXT PRIMARY KEY, value INTEGER NOT NULL)",
+        "CREATE TABLE counters (name TEXT NOT NULL PRIMARY KEY, value INTEGER NOT NULL)",
         "CREATE TABLE records ("
         "collection TEXT NOT NULL, key TEXT NOT NULL, data TEXT NOT NULL, "
         "PRIMARY KEY (collection, key))",
     ),
 )
 SCHEMA_VERSION = len(_MIGRATIONS)
+_MEMORY_PATH = ":memory:"
+
+
+def _precreate_private(path: str) -> None:
+    """Create a missing db file as 0o600 (SQLite gives -wal/-shm the main file's mode)."""
+    try:
+        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError:
+        return
+    os.close(fd)
 
 
 class SqliteStateStore:
@@ -42,12 +53,14 @@ class SqliteStateStore:
     """
 
     def __init__(self, path: str | os.PathLike[str]) -> None:
+        self._path = os.fspath(path)
+        self._in_memory = self._path == _MEMORY_PATH
+        if not self._in_memory:
+            _precreate_private(self._path)
         self._lock = threading.Lock()
-        self._conn = sqlite3.connect(os.fspath(path), check_same_thread=False, isolation_level=None)
+        self._pid = os.getpid()
+        self._conn = self._open()
         try:
-            self._conn.execute("PRAGMA busy_timeout=30000")
-            self._conn.execute("PRAGMA journal_mode=WAL")
-            self._conn.execute("PRAGMA synchronous=FULL")
             self._migrate()
         except BaseException:
             self._conn.close()
@@ -57,11 +70,43 @@ class SqliteStateStore:
 
     @property
     def durable(self) -> bool:
-        return True
+        return not self._in_memory
+
+    def _open(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self._path, check_same_thread=False, isolation_level=None)
+        try:
+            conn.execute("PRAGMA busy_timeout=30000")
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=FULL")
+        except BaseException:
+            conn.close()
+            raise
+        return conn
+
+    def _ensure_process(self) -> None:
+        """After a fork, never reuse the parent's connection or lock: open fresh ones."""
+        pid = os.getpid()
+        if pid != self._pid:
+            self._lock = threading.Lock()
+            self._conn = self._open()
+            self._pid = pid
+
+    def _reset_connection(self) -> None:
+        """Replace the connection so that no transaction can remain active."""
+        with contextlib.suppress(sqlite3.Error):
+            self._conn.close()
+        with contextlib.suppress(sqlite3.Error):
+            self._conn = self._open()
+
+    @contextmanager
+    def _locked(self) -> Iterator[sqlite3.Connection]:
+        self._ensure_process()
+        with self._lock:
+            yield self._conn
 
     def close(self) -> None:
-        with self._lock:
-            self._conn.close()
+        with self._locked() as conn:
+            conn.close()
 
     def __enter__(self) -> SqliteStateStore:
         return self
@@ -76,18 +121,17 @@ class SqliteStateStore:
 
     @contextmanager
     def _txn(self) -> Iterator[sqlite3.Connection]:
-        with self._lock:
-            self._conn.execute("BEGIN IMMEDIATE")
+        with self._locked() as conn:
+            conn.execute("BEGIN IMMEDIATE")
             try:
-                yield self._conn
+                yield conn
+                conn.execute("COMMIT")
             except BaseException:
-                self._conn.execute("ROLLBACK")
-                raise
-            try:
-                self._conn.execute("COMMIT")
-            except BaseException:
-                with contextlib.suppress(sqlite3.Error):
-                    self._conn.execute("ROLLBACK")
+                try:
+                    conn.execute("ROLLBACK")
+                except sqlite3.Error:
+                    # Keep the original error; drop the connection so no transaction stays open.
+                    self._reset_connection()
                 raise
 
     def _migrate(self) -> None:
@@ -129,13 +173,15 @@ class SqliteCounters(AsyncCounterMixin):
 
     @property
     def durable(self) -> bool:
-        return True
+        return self._store.durable
 
     def load(self, name: str) -> int | None:
-        with self._store._lock:
-            return _current(self._store._conn, name)
+        check_str(name, "counter name")
+        with self._store._locked() as conn:
+            return _current(conn, name)
 
     def advance_to(self, name: str, value: int) -> int:
+        check_str(name, "counter name")
         check_bounds(value)
         with self._store._txn() as conn:
             current = _current(conn, name)
@@ -144,9 +190,10 @@ class SqliteCounters(AsyncCounterMixin):
             _upsert_counter(conn, name, value)
             return value
 
-    def reserve(self, name: str, floor: int = 0) -> int:
+    def reserve(self, name: str, floor: int = 0, ceiling: int | None = None) -> int:
+        check_str(name, "counter name")
         with self._store._txn() as conn:
-            value = next_value(_current(conn, name), floor)
+            value = next_value(_current(conn, name), floor, ceiling)
             _upsert_counter(conn, name, value)
             return value
 
@@ -159,9 +206,11 @@ class SqliteRecords(AsyncRecordMixin):
 
     @property
     def durable(self) -> bool:
-        return True
+        return self._store.durable
 
     def save(self, collection: str, key: str, record: dict[str, Any]) -> None:
+        check_str(collection, "collection")
+        check_str(key, "key")
         data = encode_record(record)
         with self._store._txn() as conn:
             conn.execute(
@@ -171,19 +220,24 @@ class SqliteRecords(AsyncRecordMixin):
             )
 
     def load(self, collection: str, key: str) -> dict[str, Any] | None:
-        with self._store._lock:
-            row = self._store._conn.execute(
+        check_str(collection, "collection")
+        check_str(key, "key")
+        with self._store._locked() as conn:
+            row = conn.execute(
                 "SELECT data FROM records WHERE collection=? AND key=?", (collection, key)
             ).fetchone()
         return None if row is None else decode_record(row[0])
 
     def load_all(self, collection: str) -> dict[str, dict[str, Any]]:
-        with self._store._lock:
-            rows = self._store._conn.execute(
+        check_str(collection, "collection")
+        with self._store._locked() as conn:
+            rows = conn.execute(
                 "SELECT key, data FROM records WHERE collection=? ORDER BY key", (collection,)
             ).fetchall()
         return {key: decode_record(data) for key, data in rows}
 
     def delete(self, collection: str, key: str) -> None:
+        check_str(collection, "collection")
+        check_str(key, "key")
         with self._store._txn() as conn:
             conn.execute("DELETE FROM records WHERE collection=? AND key=?", (collection, key))

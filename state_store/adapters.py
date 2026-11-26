@@ -11,7 +11,6 @@ import asyncio
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from state_store._common import check_int
-from state_store.errors import CounterOverflowError
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -87,7 +86,7 @@ class GroupIdHighWaterAdapter:
     def __init__(self, counter: DurableCounter, *, name: str = "linked_group_id") -> None:
         self._counter = counter
         self._name = name
-        self.group_id_hwm_durable: bool = bool(getattr(counter, "durable", False))
+        self.group_id_hwm_durable: bool = counter.durable
 
     def load_group_id_hwm(self) -> GroupId | None:
         return self._counter.load(self._name)
@@ -97,7 +96,10 @@ class GroupIdHighWaterAdapter:
 
 
 class GroupIdAllocatorAdapter:
-    """Reserves group ids from a DurableCounter off the event loop; errors propagate."""
+    """Reserves group ids from a DurableCounter off the event loop; errors propagate.
+
+    `max_group_id` is passed as the counter's `ceiling`, so an overflow persists nothing.
+    """
 
     def __init__(
         self,
@@ -113,7 +115,4 @@ class GroupIdAllocatorAdapter:
         self._max = max_group_id
 
     async def reserve_group_id(self) -> GroupId:
-        value = await asyncio.to_thread(self._counter.reserve, self._name, 1)
-        if self._max is not None and value > self._max:
-            raise CounterOverflowError(f"group id {value} exceeds max_group_id {self._max}")
-        return value
+        return await asyncio.to_thread(self._counter.reserve, self._name, 1, self._max)

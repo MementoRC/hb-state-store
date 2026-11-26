@@ -86,18 +86,34 @@ def test_hwm_durable_attribute_follows_view(tmp_path):
 
 
 @pytest.mark.unit
-def test_hwm_durable_defaults_false_without_durable_attribute():
-    class Bare:
-        def load(self, name):
-            return None
+def test_hwm_adapter_reads_counter_durable_directly():
+    class Fake:
+        durable = True
 
-        def advance_to(self, name, value):
-            return value
+    assert GroupIdHighWaterAdapter(Fake()).group_id_hwm_durable is True  # type: ignore[arg-type]
+    with pytest.raises(AttributeError):
+        GroupIdHighWaterAdapter(object())  # type: ignore[arg-type]
 
-        def reserve(self, name, floor=0):
-            return 1
 
-    assert GroupIdHighWaterAdapter(Bare()).group_id_hwm_durable is False
+@pytest.mark.unit
+def test_counter_protocol_requires_durable():
+    from state_store import DurableCounter
+
+    assert isinstance(inspect.getattr_static(DurableCounter, "durable"), property)
+
+
+@pytest.mark.unit
+async def test_allocator_overflow_does_not_consume_ids():
+    from state_store import CounterOverflowError
+
+    backing = MemoryStateStore()
+    alloc = GroupIdAllocatorAdapter(backing.counters, max_group_id=2)
+    assert await alloc.reserve_group_id() == 1
+    assert await alloc.reserve_group_id() == 2
+    for _ in range(3):
+        with pytest.raises(CounterOverflowError):
+            await alloc.reserve_group_id()
+    assert backing.counters.load("linked_group_id") == 2
 
 
 @pytest.mark.unit

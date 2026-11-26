@@ -262,3 +262,76 @@ async def test_async_record_wrappers(records):
 @pytest.mark.unit
 def test_memory_close_is_noop():
     MemoryStateStore().close()
+
+
+@pytest.mark.unit
+def test_reserve_ceiling_overflow_does_not_persist(counters):
+    assert counters.reserve("c", ceiling=2) == 1
+    assert counters.reserve("c", ceiling=2) == 2
+    with pytest.raises(CounterOverflowError):
+        counters.reserve("c", ceiling=2)
+    assert counters.load("c") == 2
+    with pytest.raises(CounterOverflowError):
+        counters.reserve("c", floor=10, ceiling=2)
+    assert counters.load("c") == 2
+    assert counters.reserve("c", ceiling=3) == 3
+
+
+@pytest.mark.unit
+def test_reserve_ceiling_on_unset_counter_not_created(counters):
+    with pytest.raises(CounterOverflowError):
+        counters.reserve("c", floor=5, ceiling=4)
+    assert counters.load("c") is None
+
+
+@pytest.mark.unit
+def test_reserve_ceiling_type_checked(counters):
+    with pytest.raises(TypeError):
+        counters.reserve("c", ceiling="3")
+    assert counters.load("c") is None
+
+
+@pytest.mark.unit
+async def test_areserve_ceiling(counters):
+    assert await counters.areserve("c", ceiling=1) == 1
+    with pytest.raises(CounterOverflowError):
+        await counters.areserve("c", ceiling=1)
+    assert counters.load("c") == 1
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("bad", [None, 1, b"x", ("a",)])
+def test_counter_names_must_be_str(counters, bad):
+    with pytest.raises(TypeError):
+        counters.load(bad)
+    with pytest.raises(TypeError):
+        counters.advance_to(bad, 1)
+    with pytest.raises(TypeError):
+        counters.reserve(bad)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("bad", [None, 1, b"x"])
+def test_record_collection_and_key_must_be_str(records, bad):
+    with pytest.raises(TypeError):
+        records.save(bad, "k", {})
+    with pytest.raises(TypeError):
+        records.save("c", bad, {})
+    with pytest.raises(TypeError):
+        records.load(bad, "k")
+    with pytest.raises(TypeError):
+        records.load("c", bad)
+    with pytest.raises(TypeError):
+        records.load_all(bad)
+    with pytest.raises(TypeError):
+        records.delete(bad, "k")
+    with pytest.raises(TypeError):
+        records.delete("c", bad)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("bad", [[1], "text", 3, None])
+def test_non_dict_root_rejected_without_write(records, bad):
+    with pytest.raises(RecordSerializationError):
+        records.save("c", "k", bad)
+    assert records.load("c", "k") is None

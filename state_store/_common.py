@@ -25,6 +25,8 @@ def _check_keys(obj: object) -> None:
 
 def encode_record(record: dict[str, Any]) -> str:
     """Serialise to JSON text, raising RecordSerializationError before any write."""
+    if not isinstance(record, dict):
+        raise RecordSerializationError(f"record root must be a dict, got {type(record).__name__}")
     try:
         _check_keys(record)
         return json.dumps(record, allow_nan=False)
@@ -58,10 +60,22 @@ def check_bounds(value: int) -> int:
     return value
 
 
-def next_value(current: int | None, floor: int) -> int:
-    """max(current + 1, floor) with the first value being max(1, floor)."""
+def check_str(value: object, what: str) -> str:
+    """Reject non-str names, collections and keys at the API boundary."""
+    if not isinstance(value, str):
+        raise TypeError(f"{what} must be a str, got {type(value).__name__}")
+    return value
+
+
+def next_value(current: int | None, floor: int, ceiling: int | None = None) -> int:
+    """max(current + 1, floor) (first value max(1, floor)); CounterOverflowError past ceiling."""
     check_non_negative(floor)
-    return check_bounds(max(1 if current is None else current + 1, floor))
+    if ceiling is not None:
+        check_int(ceiling, "ceiling")
+    value = check_bounds(max(1 if current is None else current + 1, floor))
+    if ceiling is not None and value > ceiling:
+        raise CounterOverflowError(f"counter value {value} exceeds ceiling {ceiling}")
+    return value
 
 
 class AsyncCounterMixin:
@@ -73,7 +87,7 @@ class AsyncCounterMixin:
     def advance_to(self, name: str, value: int) -> int:
         raise NotImplementedError
 
-    def reserve(self, name: str, floor: int = 0) -> int:
+    def reserve(self, name: str, floor: int = 0, ceiling: int | None = None) -> int:
         raise NotImplementedError
 
     async def aload(self, name: str) -> int | None:
@@ -82,8 +96,8 @@ class AsyncCounterMixin:
     async def aadvance_to(self, name: str, value: int) -> int:
         return await asyncio.to_thread(self.advance_to, name, value)
 
-    async def areserve(self, name: str, floor: int = 0) -> int:
-        return await asyncio.to_thread(self.reserve, name, floor)
+    async def areserve(self, name: str, floor: int = 0, ceiling: int | None = None) -> int:
+        return await asyncio.to_thread(self.reserve, name, floor, ceiling)
 
 
 class AsyncRecordMixin:
