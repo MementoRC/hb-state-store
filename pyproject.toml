@@ -1,0 +1,141 @@
+[build-system]
+requires = ["hatchling>=1.29.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hb-state-store"
+dynamic = ["version"]
+description = "Stdlib-only persistent state store (sqlite3 + file lock) for hummingbot sub-packages"
+requires-python = ">=3.12"
+license = {text = "Apache-2.0"}
+dependencies = []
+
+[tool.hatch.version]
+path = "state_store/__about__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["state_store"]
+
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["linux-64", "osx-arm64", "osx-64", "win-64"]
+
+[tool.pixi.dependencies]
+python = ">=3.12,<3.13"
+
+[tool.pixi.feature.dev.dependencies]
+pytest = ">=9.0.3"
+pytest-asyncio = ">=0.21.0"
+pytest-cov = ">=7.1.0"
+pytest-timeout = ">=2.4.0"
+ruff = "=0.17.2"
+mypy = ">=1.20.0"
+import-linter = ">=2.0"
+pre-commit = ">=2.15.0"
+bandit = ">=1.8.0"
+pip-audit = "*"
+filelock = "*"
+
+[tool.pixi.feature.ci.dependencies]
+ruff = "=0.17.2"
+mypy = ">=1.20.0"
+import-linter = ">=2.0"
+pytest = ">=9.0.3"
+pytest-cov = ">=7.1.0"
+pytest-timeout = ">=2.4.0"
+bandit = ">=1.8.0"
+pip-audit = "*"
+filelock = "*"
+pre-commit = ">=2.15.0"
+hatchling = ">=1.18"
+
+[tool.pixi.feature.py312.dependencies]
+python = "3.12.*"
+
+[tool.pixi.environments]
+default = { features = ["dev"], solve-group = "default" }
+ci = { features = ["ci", "dev"], solve-group = "default" }
+quality-ci = { features = ["ci", "dev"], solve-group = "default" }
+py312 = { features = ["py312", "dev"], solve-group = "py312" }
+
+[tool.pixi.tasks]
+test = "pytest tests/"
+test-unit = "pytest tests/unit/"
+test-integration = "pytest tests/integration/"
+lint = "ruff check state_store tests"
+format = "ruff format state_store tests"
+format-check = "ruff format --check state_store tests"
+typecheck = "mypy state_store"
+build = "hatchling build"
+coverage = "pytest tests/ --cov=state_store --cov-report=term-missing"
+check-conda-first = "python scripts/check_conda_first.py"
+lint-boundaries = "lint-imports"
+bandit-security = "bandit -c pyproject.toml -r state_store --severity-level medium --confidence-level medium"
+safety-check = "pip-audit --skip-editable"
+quality = { depends-on = ["check-conda-first", "lint", "format-check", "typecheck", "lint-boundaries", "bandit-security"] }
+check = { depends-on = ["check-conda-first", "quality", "typecheck", "test"] }
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_functions = "test_*"
+markers = [
+    "unit: unit tests",
+    "integration: integration tests",
+]
+timeout = 30
+addopts = "--strict-markers --strict-config -v"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "B", "UP", "N", "SIM", "TCH"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+warn_unused_ignores = true
+
+[tool.bandit]
+exclude_dirs = ["tests", ".pixi", ".worktrees"]
+
+[tool.coverage.run]
+branch = true
+source_pkgs = ["state_store"]
+omit = ["state_store/__about__.py"]
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
+skip_covered = true
+exclude_lines = ["no cov", "if __name__", "if TYPE_CHECKING", "raise NotImplementedError", "@overload"]
+
+[tool.importlinter]
+root_package = "state_store"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "state_store never imports hummingbot (ADR 0001)"
+type = "forbidden"
+source_modules = ["state_store"]
+forbidden_modules = ["hummingbot"]
+
+[[tool.importlinter.contracts]]
+name = "adr-0001-l0-leaf-independence"
+type = "forbidden"
+source_modules = ["state_store"]
+forbidden_modules = ["connector_utils", "data_type_primitives", "event_bus", "logger", "async_utils", "rate_limit", "candles_feed", "liquidations_feed", "rate_oracle", "market_data", "market_connector", "market_simulator", "web_assistant", "remote_iface", "strategy_framework", "order_book", "user_stream_tracker"]
+
+[tool.hummingbot.supersedes]
+modules = []
+test_paths = []

@@ -1,0 +1,39 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ruff
+        name: ruff (pixi)
+        entry: pixi run ruff check --force-exclude --fix
+        language: system
+        types_or: [python, pyi]
+      - id: ruff-format
+        name: ruff format (pixi)
+        entry: pixi run ruff format --force-exclude
+        language: system
+        types_or: [python, pyi]
+      - id: mypy
+        name: mypy (pixi typecheck)
+        entry: pixi run typecheck
+        language: system
+        types: [python]
+        pass_filenames: false
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+      - id: debug-statements
+      - id: check-case-conflict
+      - id: check-docstring-first
+      - id: check-merge-conflict
+      - id: check-toml
+
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: ['--baseline', '.secrets.baseline']
+        exclude: package-lock.json
