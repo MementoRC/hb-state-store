@@ -1,5 +1,9 @@
 """Smoke tests for hb-state-store: verifies the package imports and version is set."""
 
+import json
+import re
+from pathlib import Path
+
 import pytest
 
 import state_store
@@ -14,5 +18,8 @@ def test_package_importable() -> None:
 
 @pytest.mark.unit
 def test_version() -> None:
-    """__version__ is the bootstrap version."""
-    assert __version__ == "0.0.0"
+    """__version__ equals the "." entry of .release-please-manifest.json and is X.Y.Z."""
+    manifest = Path(__file__).resolve().parents[1] / ".release-please-manifest.json"
+    expected = json.loads(manifest.read_text(encoding="utf-8"))["."]
+    assert __version__ == expected
+    assert re.fullmatch(r"\d+\.\d+\.\d+", __version__)
