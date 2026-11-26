@@ -1,7 +1,9 @@
 """Vendored text copy of the strategy-framework linked_orders protocol signatures.
 
-Source: strategy_framework/linked_orders/protocols.py (LinkedGroupStore, GroupIdHighWaterStore,
-GroupIdAllocator). Copied by hand, with `GroupId` (a NewType over int there) and `GroupRecord`
+Source: strategy-framework `development` @ e57b3eb,
+strategy_framework/linked_orders/protocols.py (LinkedGroupStore, GroupIdHighWaterStore,
+GroupIdAllocator). UPDATE THIS FILE (and the adapters) whenever SF changes these protocols.
+Copied by hand, with `GroupId` (a NewType over int there) and `GroupRecord`
 replaced by plain types. NEVER import strategy_framework from state_store or its tests; when the
 SF signatures change, update this file and the adapters together.
 """

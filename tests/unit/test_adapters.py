@@ -33,13 +33,13 @@ def make_store_adapter(backing, **kwargs):
 @pytest.mark.unit
 def test_group_store_round_trip():
     backing = MemoryStateStore()
-    a = make_store_adapter(backing)
+    a = make_store_adapter(backing.records)
     assert a.durable is False
     a.save(Rec(1, "x"))
     a.save(Rec(2, "y"))
     a.save(Rec(1, "z"))
     assert sorted(a.load_all(), key=lambda r: r.group_id) == [Rec(1, "z"), Rec(2, "y")]
-    assert backing.load_record("linked_groups", "1") == {"group_id": 1, "note": "z"}
+    assert backing.records.load("linked_groups", "1") == {"group_id": 1, "note": "z"}
     a.delete(1)
     a.delete(1)
     assert a.load_all() == [Rec(2, "y")]
@@ -48,41 +48,41 @@ def test_group_store_round_trip():
 @pytest.mark.unit
 def test_group_store_custom_collection_and_durable(tmp_path):
     with SqliteStateStore(tmp_path / "s.db") as backing:
-        a = make_store_adapter(backing, collection="mine")
+        a = make_store_adapter(backing.records, collection="mine")
         assert a.durable is True
         a.save(Rec(5, "n"))
-        assert backing.load_all("mine") == {"5": {"group_id": 5, "note": "n"}}
-        assert backing.load_all("linked_groups") == {}
+        assert backing.records.load_all("mine") == {"5": {"group_id": 5, "note": "n"}}
+        assert backing.records.load_all("linked_groups") == {}
 
 
 @pytest.mark.unit
 def test_hwm_adapter():
     backing = MemoryStateStore()
-    hwm = GroupIdHighWaterAdapter(backing)
+    hwm = GroupIdHighWaterAdapter(backing.counters)
     assert hwm.load_group_id_hwm() is None
     hwm.save_group_id_hwm(7)
     hwm.save_group_id_hwm(3)
     assert hwm.load_group_id_hwm() == 7
-    assert backing.load("linked_group_id") == 7
-    other = GroupIdHighWaterAdapter(backing, name="n2")
+    assert backing.counters.load("linked_group_id") == 7
+    other = GroupIdHighWaterAdapter(backing.counters, name="n2")
     assert other.load_group_id_hwm() is None
 
 
 @pytest.mark.unit
 async def test_allocator_adapter():
     backing = MemoryStateStore()
-    alloc = GroupIdAllocatorAdapter(backing)
+    alloc = GroupIdAllocatorAdapter(backing.counters)
     assert await alloc.reserve_group_id() == 1
     assert await alloc.reserve_group_id() == 2
-    GroupIdHighWaterAdapter(backing).save_group_id_hwm(50)
+    GroupIdHighWaterAdapter(backing.counters).save_group_id_hwm(50)
     assert await alloc.reserve_group_id() == 51
 
 
 @pytest.mark.unit
-def test_hwm_durable_attribute_follows_backing_store(tmp_path):
-    assert GroupIdHighWaterAdapter(MemoryStateStore()).group_id_hwm_durable is False
+def test_hwm_durable_attribute_follows_view(tmp_path):
+    assert GroupIdHighWaterAdapter(MemoryStateStore().counters).group_id_hwm_durable is False
     with SqliteStateStore(tmp_path / "s.db") as backing:
-        assert GroupIdHighWaterAdapter(backing).group_id_hwm_durable is True
+        assert GroupIdHighWaterAdapter(backing.counters).group_id_hwm_durable is True
 
 
 @pytest.mark.unit
@@ -104,7 +104,7 @@ def test_hwm_durable_defaults_false_without_durable_attribute():
 async def test_allocator_max_group_id_inclusive():
     from state_store import CounterOverflowError
 
-    alloc = GroupIdAllocatorAdapter(MemoryStateStore(), max_group_id=2)
+    alloc = GroupIdAllocatorAdapter(MemoryStateStore().counters, max_group_id=2)
     assert await alloc.reserve_group_id() == 1
     assert await alloc.reserve_group_id() == 2
     with pytest.raises(CounterOverflowError):
@@ -112,17 +112,24 @@ async def test_allocator_max_group_id_inclusive():
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("bad", [True, 2.0, "5"])
+def test_allocator_max_group_id_type_checked(bad):
+    with pytest.raises(TypeError):
+        GroupIdAllocatorAdapter(MemoryStateStore().counters, max_group_id=bad)
+
+
+@pytest.mark.unit
 async def test_allocator_zero_hwm_then_reserve_is_one():
     backing = MemoryStateStore()
-    GroupIdHighWaterAdapter(backing).save_group_id_hwm(0)
-    assert GroupIdHighWaterAdapter(backing).load_group_id_hwm() == 0
-    assert await GroupIdAllocatorAdapter(backing).reserve_group_id() == 1
+    GroupIdHighWaterAdapter(backing.counters).save_group_id_hwm(0)
+    assert GroupIdHighWaterAdapter(backing.counters).load_group_id_hwm() == 0
+    assert await GroupIdAllocatorAdapter(backing.counters).reserve_group_id() == 1
 
 
 @pytest.mark.unit
 async def test_allocator_fails_closed(tmp_path):
     backing = SqliteStateStore(tmp_path / "s.db")
-    alloc = GroupIdAllocatorAdapter(backing)
+    alloc = GroupIdAllocatorAdapter(backing.counters)
     backing.close()
     with pytest.raises(Exception, match="closed"):
         await alloc.reserve_group_id()
@@ -131,9 +138,9 @@ async def test_allocator_fails_closed(tmp_path):
 @pytest.mark.unit
 def test_structural_conformance_runtime():
     backing = MemoryStateStore()
-    store = make_store_adapter(backing)
-    hwm = GroupIdHighWaterAdapter(backing)
-    alloc = GroupIdAllocatorAdapter(backing)
+    store = make_store_adapter(backing.records)
+    hwm = GroupIdHighWaterAdapter(backing.counters)
+    alloc = GroupIdAllocatorAdapter(backing.counters)
     assert isinstance(store, adapters.LinkedGroupStore)
     assert isinstance(hwm, adapters.GroupIdHighWaterStore)
     assert isinstance(alloc, adapters.GroupIdAllocator)
