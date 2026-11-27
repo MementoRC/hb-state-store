@@ -95,6 +95,63 @@ class GroupIdHighWaterAdapter:
         self._counter.advance_to(self._name, group_id)
 
 
+@runtime_checkable
+class StateStoreViews(Protocol):
+    """A store exposing a `records` view and a `counters` view (Sqlite/MemoryStateStore)."""
+
+    records: RecordStore
+    counters: DurableCounter
+
+
+class LinkedGroupStateAdapter[TRecord]:
+    """One object satisfying both LinkedGroupStore and GroupIdHighWaterStore.
+
+    Use this when strategy-framework runs without `allocator=`: SF detects the high-water
+    mark on the store object itself. The split adapters (LinkedGroupStoreAdapter,
+    GroupIdHighWaterAdapter, GroupIdAllocatorAdapter) remain for `allocator=` setups.
+    Deliberately has no `group_id_hwm_durable` (SF deprecates it and defaults it to True).
+    """
+
+    def __init__(
+        self,
+        state: StateStoreViews,
+        *,
+        to_dict: Callable[[TRecord], dict[str, Any]],
+        from_dict: Callable[[dict[str, Any]], TRecord],
+        group_id_of: Callable[[TRecord], GroupId],
+        collection: str = "linked_groups",
+        name: str = "linked_group_id",
+    ) -> None:
+        self._records = LinkedGroupStoreAdapter(
+            state.records,
+            to_dict=to_dict,
+            from_dict=from_dict,
+            group_id_of=group_id_of,
+            collection=collection,
+        )
+        self._hwm = GroupIdHighWaterAdapter(state.counters, name=name)
+        self._durable = state.records.durable and state.counters.durable
+
+    @property
+    def durable(self) -> bool:
+        return self._durable
+
+    def save(self, record: TRecord) -> None:
+        self._records.save(record)
+
+    def load_all(self) -> Sequence[TRecord]:
+        return self._records.load_all()
+
+    def delete(self, group_id: GroupId) -> None:
+        self._records.delete(group_id)
+
+    def load_group_id_hwm(self) -> GroupId | None:
+        return self._hwm.load_group_id_hwm()
+
+    def save_group_id_hwm(self, group_id: GroupId) -> None:
+        self._hwm.save_group_id_hwm(group_id)
+
+
 class GroupIdAllocatorAdapter:
     """Reserves group ids from a DurableCounter off the event loop; errors propagate.
 

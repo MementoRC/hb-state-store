@@ -4,7 +4,9 @@ from state_store.__about__ import __version__
 from state_store.adapters import (
     GroupIdAllocatorAdapter,
     GroupIdHighWaterAdapter,
+    LinkedGroupStateAdapter,
     LinkedGroupStoreAdapter,
+    StateStoreViews,
 )
 from state_store.errors import (
     CounterOverflowError,
@@ -21,6 +23,7 @@ __all__ = [
     "DurableCounter",
     "GroupIdAllocatorAdapter",
     "GroupIdHighWaterAdapter",
+    "LinkedGroupStateAdapter",
     "LinkedGroupStoreAdapter",
     "MemoryStateStore",
     "RecordSerializationError",
@@ -28,5 +31,6 @@ __all__ = [
     "SchemaVersionError",
     "SqliteStateStore",
     "StateStoreError",
+    "StateStoreViews",
     "__version__",
 ]

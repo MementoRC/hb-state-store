@@ -66,6 +66,24 @@ allocator = GroupIdAllocatorAdapter(store.counters, max_group_id=2**31 - 1)
 # group_id = await allocator.reserve_group_id()
 ```
 
+### Recommended without `allocator=`: `LinkedGroupStateAdapter`
+
+strategy-framework detects the high-water mark on the store object itself, so when it runs
+without `allocator=` pass one object that is both the group store and the HWM store:
+
+```python
+from state_store import LinkedGroupStateAdapter, SqliteStateStore
+
+store = SqliteStateStore("state.db")
+linked = LinkedGroupStateAdapter(
+    store, to_dict=encode_group, from_dict=decode_group, group_id_of=lambda r: r.group_id
+)
+# LinkedOrderManager(store=linked, ...): save/load_all/delete + load/save_group_id_hwm
+```
+
+`collection` and `name` select the records collection and HWM counter. The split adapters above
+suit `allocator=` setups.
+
 ## Future work (out of scope for v0.1)
 
 Postgres or other network backends, cross-host coordination, encryption, TTL/eviction, an
