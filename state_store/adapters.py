@@ -12,10 +12,11 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from state_store._common import check_int
 
+# Runtime imports (not TYPE_CHECKING) so typing.get_type_hints(StateStoreViews) resolves.
+from state_store.protocols import DurableCounter, RecordStore  # noqa: TC001
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
-
-    from state_store.protocols import DurableCounter, RecordStore
 
 GroupId = int
 
