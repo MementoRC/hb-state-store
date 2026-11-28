@@ -14,6 +14,13 @@ from state_store.adapters import (
 from tests import sf_vendored_protocols as sf
 
 
+def test_state_store_views_type_hints_resolve_at_runtime():
+    import typing
+
+    hints = typing.get_type_hints(adapters.StateStoreViews)
+    assert set(hints) == {"records", "counters"}
+
+
 @dataclass
 class Rec:
     group_id: int
